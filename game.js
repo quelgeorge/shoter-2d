@@ -129,11 +129,19 @@
     let floaters = [];
 
     // Input state
-    const keys = {};
+    const keysDown = {};
     const mouse = { x: 0, y: 0, down: false, worldX: 0, worldY: 0 };
+    const inputDebug = {
+        keyboard: { x: 0, y: 0 },
+        joystick: { x: 0, y: 0 },
+        final: { x: 0, y: 0 }
+    };
+    let lastPointerType = 'unknown';
     
     // Mobile touch controls
     let isMobile = false;
+    const hasTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+    let touchEnabled = false;
     let touchJoystick = { active: false, centerX: 0, centerY: 0, x: 0, y: 0, radius: 60 };
     let touchAim = { active: false, x: 0, y: 0 };
     let mobileMoveInput = { x: 0, y: 0 };
@@ -149,9 +157,24 @@
 
     const debugMobileZones = false;
     
+    function clearInputState() {
+        Object.keys(keysDown).forEach((key) => {
+            keysDown[key] = false;
+        });
+        mouse.down = false;
+        touchAim.active = false;
+        touchJoystick.active = false;
+        mobileMoveInput.x = 0;
+        mobileMoveInput.y = 0;
+        mobileMoveTarget.x = 0;
+        mobileMoveTarget.y = 0;
+        joystickPointerId = null;
+        aimPointerId = null;
+    }
+
     // Input handlers
     window.addEventListener('keydown', (e) => {
-        keys[e.key.toLowerCase()] = true;
+        keysDown[e.code] = true;
         if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
             paused = !paused;
             gameState = paused ? 'paused' : 'playing';
@@ -184,25 +207,42 @@
     });
     
     window.addEventListener('keyup', (e) => {
-        keys[e.key.toLowerCase()] = false;
+        keysDown[e.code] = false;
     });
+
+    window.addEventListener('blur', clearInputState);
     
-    canvas.addEventListener('mousemove', (e) => {
+    function updateMousePosition(clientX, clientY) {
         const rect = canvas.getBoundingClientRect();
-        mouse.x = e.clientX - rect.left;
-        mouse.y = e.clientY - rect.top;
+        mouse.x = clientX - rect.left;
+        mouse.y = clientY - rect.top;
         mouse.worldX = mouse.x;
         mouse.worldY = mouse.y;
+    }
+
+    canvas.addEventListener('pointermove', (e) => {
+        if (e.pointerType && e.pointerType !== 'mouse') return;
+        lastPointerType = e.pointerType || 'mouse';
+        updateMousePosition(e.clientX, e.clientY);
     });
     
-    canvas.addEventListener('mousedown', (e) => {
+    canvas.addEventListener('pointerdown', (e) => {
+        if (e.pointerType && e.pointerType !== 'mouse') return;
+        lastPointerType = e.pointerType || 'mouse';
         if (e.button === 0) mouse.down = true;
     });
     
-    canvas.addEventListener('mouseup', (e) => {
+    canvas.addEventListener('pointerup', (e) => {
+        if (e.pointerType && e.pointerType !== 'mouse') return;
+        lastPointerType = e.pointerType || 'mouse';
         if (e.button === 0) mouse.down = false;
     });
-    
+
+    canvas.addEventListener('pointerleave', (e) => {
+        if (e.pointerType && e.pointerType !== 'mouse') return;
+        mouse.down = false;
+    });
+
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     
     // Mobile touch controls setup
@@ -270,21 +310,69 @@
         setJoystickKnob(touchJoystick.centerX, touchJoystick.centerY);
     }
     
-    // Detect mobile
-    function detectMobile() {
-        isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
-                   ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-        if (isMobile) {
-            document.body.classList.add('mobile-input');
-            if (debugMobileZones) {
-                document.body.classList.add('debug-mobile-zones');
-            }
-            mobileControls.classList.add('active');
-            audioHint.classList.add('show');
-            updateJoystickBaseMetrics();
+    // Touch controls gating (desktop vs mobile)
+    function enableTouchControls() {
+        if (touchEnabled) return;
+        touchEnabled = true;
+        isMobile = true;
+        document.body.classList.add('mobile-input');
+        if (debugMobileZones) {
+            document.body.classList.add('debug-mobile-zones');
         }
+        if (mobileControls) mobileControls.classList.add('active');
+        if (audioHint) audioHint.classList.add('show');
+        if (leftZone) {
+            leftZone.style.display = 'block';
+            leftZone.style.pointerEvents = 'auto';
+        }
+        if (rightZone) {
+            rightZone.style.display = 'block';
+            rightZone.style.pointerEvents = 'auto';
+        }
+        updateJoystickBaseMetrics();
     }
-    detectMobile();
+
+    function disableTouchControls() {
+        touchEnabled = false;
+        isMobile = false;
+        document.body.classList.remove('mobile-input');
+        document.body.classList.remove('debug-mobile-zones');
+        if (mobileControls) mobileControls.classList.remove('active');
+        if (audioHint) audioHint.classList.remove('show');
+        if (leftZone) {
+            leftZone.style.display = 'none';
+            leftZone.style.pointerEvents = 'none';
+        }
+        if (rightZone) {
+            rightZone.style.display = 'none';
+            rightZone.style.pointerEvents = 'none';
+        }
+        mobileMoveInput.x = 0;
+        mobileMoveInput.y = 0;
+        mobileMoveTarget.x = 0;
+        mobileMoveTarget.y = 0;
+        touchJoystick.active = false;
+        touchAim.active = false;
+    }
+
+    if (hasTouch) {
+        enableTouchControls();
+    } else {
+        disableTouchControls();
+    }
+
+    document.addEventListener('pointerdown', (e) => {
+        lastPointerType = e.pointerType || 'unknown';
+        if (e.pointerType === 'touch') {
+            enableTouchControls();
+        }
+    }, { passive: true });
+
+    document.addEventListener('pointermove', (e) => {
+        if (e.pointerType) {
+            lastPointerType = e.pointerType;
+        }
+    }, { passive: true });
     
     function getCanvasCoords(clientX, clientY) {
         const rect = canvas.getBoundingClientRect();
@@ -418,15 +506,15 @@
         e.stopPropagation();
         initAudio();
         resumeAudio();
-        keys['shift'] = true;
+        keysDown['ShiftLeft'] = true;
     });
     dashButton.addEventListener('pointerup', (e) => {
         e.preventDefault();
-        keys['shift'] = false;
+        keysDown['ShiftLeft'] = false;
     });
     dashButton.addEventListener('pointercancel', (e) => {
         e.preventDefault();
-        keys['shift'] = false;
+        keysDown['ShiftLeft'] = false;
     });
     
     pauseButton.addEventListener('pointerdown', (e) => {
@@ -450,8 +538,8 @@
         e.preventDefault();
         initAudio();
         resumeAudio();
-        keys['shift'] = true;
-        setTimeout(() => { keys['shift'] = false; }, 100);
+        keysDown['ShiftLeft'] = true;
+        setTimeout(() => { keysDown['ShiftLeft'] = false; }, 100);
     });
     
     pauseButton.addEventListener('click', (e) => {
@@ -731,12 +819,12 @@
             }
             
             // Dash activation
-            if ((keys['shift'] || keys['shiftleft'] || keys['shiftright']) && !this.dashActive && this.dashCooldown <= 0) {
+            if ((keysDown['ShiftLeft'] || keysDown['ShiftRight']) && !this.dashActive && this.dashCooldown <= 0) {
                 let dx = 0, dy = 0;
-                if (keys['w'] || keys['arrowup']) dy -= 1;
-                if (keys['s'] || keys['arrowdown']) dy += 1;
-                if (keys['a'] || keys['arrowleft']) dx -= 1;
-                if (keys['d'] || keys['arrowright']) dx += 1;
+                if (keysDown['KeyW'] || keysDown['ArrowUp']) dy -= 1;
+                if (keysDown['KeyS'] || keysDown['ArrowDown']) dy += 1;
+                if (keysDown['KeyA'] || keysDown['ArrowLeft']) dx -= 1;
+                if (keysDown['KeyD'] || keysDown['ArrowRight']) dx += 1;
                 
                 if (dx !== 0 || dy !== 0) {
                     const len = Math.sqrt(dx * dx + dy * dy);
@@ -804,19 +892,38 @@
                     if (Math.abs(mobileMoveInput.y) < 0.001) mobileMoveInput.y = 0;
                 }
 
-                if (keys['w'] || keys['arrowup']) keyDy -= 1;
-                if (keys['s'] || keys['arrowdown']) keyDy += 1;
-                if (keys['a'] || keys['arrowleft']) keyDx -= 1;
-                if (keys['d'] || keys['arrowright']) keyDx += 1;
-                
+                if (keysDown['KeyW'] || keysDown['ArrowUp']) keyDy -= 1;
+                if (keysDown['KeyS'] || keysDown['ArrowDown']) keyDy += 1;
+                if (keysDown['KeyA'] || keysDown['ArrowLeft']) keyDx -= 1;
+                if (keysDown['KeyD'] || keysDown['ArrowRight']) keyDx += 1;
+
                 if (keyDx !== 0 || keyDy !== 0) {
                     const len = Math.sqrt(keyDx * keyDx + keyDy * keyDy);
-                    dx = keyDx / len;
-                    dy = keyDy / len;
-                } else if (isMobile && (touchJoystick.active || mobileMoveInput.x !== 0 || mobileMoveInput.y !== 0)) {
-                    dx = mobileMoveInput.x;
-                    dy = mobileMoveInput.y;
+                    inputDebug.keyboard.x = keyDx / len;
+                    inputDebug.keyboard.y = keyDy / len;
+                } else {
+                    inputDebug.keyboard.x = 0;
+                    inputDebug.keyboard.y = 0;
                 }
+
+                if (isMobile) {
+                    inputDebug.joystick.x = mobileMoveInput.x;
+                    inputDebug.joystick.y = mobileMoveInput.y;
+                } else {
+                    inputDebug.joystick.x = 0;
+                    inputDebug.joystick.y = 0;
+                }
+
+                dx = inputDebug.keyboard.x + inputDebug.joystick.x;
+                dy = inputDebug.keyboard.y + inputDebug.joystick.y;
+                const len = Math.sqrt(dx * dx + dy * dy);
+                if (len > 1) {
+                    dx /= len;
+                    dy /= len;
+                }
+
+                inputDebug.final.x = dx;
+                inputDebug.final.y = dy;
                 
                 if (dx !== 0 || dy !== 0) {
                     this.x += dx * this.speed * dt;
@@ -1449,7 +1556,7 @@
 
     function handleShooting(dt, currentTime) {
         const now = currentTime / 1000;
-        const isShooting = mouse.down || keys[' '] || (isMobile && touchAim.active);
+        const isShooting = mouse.down || keysDown['Space'] || (isMobile && touchAim.active);
         const weaponId = getActiveWeaponId();
         const weapon = WEAPONS[weaponId];
         const fireRate = weapon.fireRate * getFireRateMultiplier();
@@ -1709,7 +1816,7 @@
             // Muzzle flash
             if (gameState === 'playing' && !paused) {
                 const now = currentTime / 1000;
-                const isShooting = mouse.down || keys[' '] || (isMobile && touchAim.active);
+                const isShooting = mouse.down || keysDown['Space'] || (isMobile && touchAim.active);
                 if (isShooting && now - lastShotTime < 0.05) {
                     const flashX = player.x + Math.cos(player.angle) * (player.radius + 8);
                     const flashY = player.y + Math.sin(player.angle) * (player.radius + 8);
@@ -2066,6 +2173,20 @@
             ctx.fillText(`Bullets: ${bullets.length}`, canvas.width / dpr - 100, 40);
             ctx.fillText(`Enemies: ${enemies.length}`, canvas.width / dpr - 100, 60);
             ctx.fillText(`Particles: ${particles.length}`, canvas.width / dpr - 100, 80);
+
+            const inputX = canvas.width / dpr - 240;
+            let inputY = 110;
+            ctx.fillText(`Kbd: ${inputDebug.keyboard.x.toFixed(2)}, ${inputDebug.keyboard.y.toFixed(2)}`, inputX, inputY);
+            inputY += 18;
+            ctx.fillText(`Joy: ${inputDebug.joystick.x.toFixed(2)}, ${inputDebug.joystick.y.toFixed(2)}`, inputX, inputY);
+            inputY += 18;
+            ctx.fillText(`Final: ${inputDebug.final.x.toFixed(2)}, ${inputDebug.final.y.toFixed(2)}`, inputX, inputY);
+            inputY += 18;
+            ctx.fillText(`Shoot(mouse): ${mouse.down}`, inputX, inputY);
+            inputY += 18;
+            ctx.fillText(`Shoot(touch): ${touchAim.active}`, inputX, inputY);
+            inputY += 18;
+            ctx.fillText(`Pointer: ${lastPointerType}`, inputX, inputY);
             
             ctx.strokeStyle = '#0f0';
             ctx.lineWidth = 1;
