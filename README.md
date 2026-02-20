@@ -1,4 +1,4 @@
-# Shoter 2D
+# Shooter 2D
 
 A fast-paced 2D arcade shooter game playable on desktop and mobile devices.
 
