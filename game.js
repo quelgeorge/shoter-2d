@@ -64,6 +64,8 @@
     // Sound spam limiter
     let soundTimestamps = [];
     const maxSoundsPerSecond = 20;
+
+    const debugMobileZones = true;
     
     // Input handlers
     window.addEventListener('keydown', (e) => {
@@ -147,6 +149,9 @@
                    ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
         if (isMobile) {
             document.body.classList.add('mobile-input');
+            if (debugMobileZones) {
+                document.body.classList.add('debug-mobile-zones');
+            }
             mobileControls.classList.add('active');
             audioHint.classList.add('show');
             updateJoystickBaseMetrics();
@@ -190,6 +195,9 @@
     function handleLeftPointerDown(e) {
         if (!isMobile || joystickPointerId !== null) return;
         e.preventDefault();
+        if (debugMobileZones) {
+            console.log('[mobile] leftZone pointerdown', e.pointerId);
+        }
         initAudio();
         resumeAudio();
         joystickPointerId = e.pointerId;
@@ -230,6 +238,9 @@
     function handleRightPointerDown(e) {
         if (!isMobile || aimPointerId !== null) return;
         e.preventDefault();
+        if (debugMobileZones) {
+            console.log('[mobile] rightZone pointerdown', e.pointerId);
+        }
         initAudio();
         resumeAudio();
         aimPointerId = e.pointerId;
@@ -263,15 +274,15 @@
     }
 
     if (leftZone && rightZone) {
-        leftZone.addEventListener('pointerdown', handleLeftPointerDown);
-        leftZone.addEventListener('pointermove', handleLeftPointerMove);
-        leftZone.addEventListener('pointerup', handleLeftPointerUp);
-        leftZone.addEventListener('pointercancel', handleLeftPointerUp);
+        leftZone.addEventListener('pointerdown', handleLeftPointerDown, { passive: false });
+        leftZone.addEventListener('pointermove', handleLeftPointerMove, { passive: false });
+        leftZone.addEventListener('pointerup', handleLeftPointerUp, { passive: false });
+        leftZone.addEventListener('pointercancel', handleLeftPointerUp, { passive: false });
 
-        rightZone.addEventListener('pointerdown', handleRightPointerDown);
-        rightZone.addEventListener('pointermove', handleRightPointerMove);
-        rightZone.addEventListener('pointerup', handleRightPointerUp);
-        rightZone.addEventListener('pointercancel', handleRightPointerUp);
+        rightZone.addEventListener('pointerdown', handleRightPointerDown, { passive: false });
+        rightZone.addEventListener('pointermove', handleRightPointerMove, { passive: false });
+        rightZone.addEventListener('pointerup', handleRightPointerUp, { passive: false });
+        rightZone.addEventListener('pointercancel', handleRightPointerUp, { passive: false });
     }
     
     // Button handlers
