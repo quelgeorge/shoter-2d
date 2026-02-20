@@ -2,21 +2,193 @@
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    position: fixed;
+    touch-action: none;
 }
 
 body {
     display: flex;
     justify-content: center;
     align-items: center;
-    min-height: 100vh;
     background: #1a1a2e;
-    overflow: hidden;
     font-family: 'Courier New', monospace;
+}
+
+#gameContainer {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
 }
 
 #gameCanvas {
     display: block;
-    width: 100vw;
-    height: 100vh;
+    width: 100%;
+    height: 100%;
     background: #0f0f1e;
+    touch-action: none;
+}
+
+.mobile-controls {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 10;
+    display: none;
+}
+
+.mobile-controls.active {
+    display: block;
+    pointer-events: all;
+}
+
+.joystick-base {
+    position: absolute;
+    left: 80px;
+    bottom: 80px;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.mobile-controls.active .joystick-base {
+    opacity: 1;
+}
+
+.joystick-knob {
+    position: absolute;
+    left: 80px;
+    bottom: 80px;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: rgba(74, 158, 255, 0.8);
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    transform: translate(-50%, 50%);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.mobile-controls.active .joystick-knob {
+    opacity: 1;
+}
+
+.control-button {
+    position: absolute;
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.5);
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    font-size: 20px;
+    font-weight: bold;
+    font-family: 'Courier New', monospace;
+    cursor: pointer;
+    pointer-events: all;
+    opacity: 0;
+    transition: opacity 0.3s, transform 0.1s;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.mobile-controls.active .control-button {
+    opacity: 0.9;
+}
+
+.control-button:active {
+    transform: scale(0.9);
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.dash-button {
+    right: 80px;
+    bottom: 80px;
+    font-size: 16px;
+}
+
+.pause-button {
+    right: 20px;
+    top: 20px;
+    font-size: 24px;
+}
+
+.mute-button {
+    left: 20px;
+    top: 20px;
+    font-size: 24px;
+}
+
+.audio-hint {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #fff;
+    font-size: 18px;
+    padding: 15px 25px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    border-radius: 10px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+    z-index: 20;
+}
+
+.audio-hint.show {
+    opacity: 1;
+}
+
+@media (max-width: 768px) {
+    .joystick-base, .joystick-knob {
+        left: 60px;
+        bottom: 60px;
+    }
+    
+    .joystick-base {
+        width: 100px;
+        height: 100px;
+    }
+    
+    .joystick-knob {
+        width: 50px;
+        height: 50px;
+    }
+    
+    .control-button {
+        width: 60px;
+        height: 60px;
+        font-size: 18px;
+    }
+    
+    .dash-button {
+        right: 60px;
+        bottom: 60px;
+        font-size: 14px;
+    }
+    
+    .pause-button, .mute-button {
+        width: 50px;
+        height: 50px;
+        font-size: 20px;
+    }
 }

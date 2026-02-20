@@ -1,5 +1,6 @@
 // How to run: Open index.html directly in a web browser. No server required.
-// Controls: WASD/Arrows = move, Mouse = aim, LMB/Space = shoot, P/Esc = pause, R = restart, M = mute, ~ = debug
+// Desktop: WASD/Arrows = move, Mouse = aim, LMB/Space = shoot, Shift = dash, P/Esc = pause, R = restart, M = mute, ~ = debug
+// Mobile: Left thumb = joystick move, Right thumb = aim+shoot, Dash button, Pause/Mute buttons
 
 (function() {
     'use strict';
@@ -46,6 +47,16 @@
     const keys = {};
     const mouse = { x: 0, y: 0, down: false, worldX: 0, worldY: 0 };
     
+    // Mobile touch controls
+    let isMobile = false;
+    let touchJoystick = { active: false, centerX: 0, centerY: 0, x: 0, y: 0, radius: 60 };
+    let touchAim = { active: false, x: 0, y: 0 };
+    let mobileMoveInput = { x: 0, y: 0 };
+    
+    // Sound spam limiter
+    let soundTimestamps = [];
+    const maxSoundsPerSecond = 20;
+    
     // Input handlers
     window.addEventListener('keydown', (e) => {
         keys[e.key.toLowerCase()] = true;
@@ -85,29 +96,334 @@
     });
     
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-
-    // Audio context and sounds
-    let audioContext = null;
-    try {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    } catch (e) {
-        console.warn('WebAudio not supported');
+    
+    // Mobile touch controls setup
+    const joystickBase = document.getElementById('joystickBase');
+    const joystickKnob = document.getElementById('joystickKnob');
+    const dashButton = document.getElementById('dashButton');
+    const pauseButton = document.getElementById('pauseButton');
+    const muteButton = document.getElementById('muteButton');
+    const mobileControls = document.getElementById('mobileControls');
+    const audioHint = document.getElementById('audioHint');
+    
+    // Detect mobile
+    function detectMobile() {
+        isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+                   ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+        if (isMobile) {
+            mobileControls.classList.add('active');
+            audioHint.classList.add('show');
+        }
     }
+    detectMobile();
+    
+    // Touch event handlers
+    function handleTouchStart(e) {
+        e.preventDefault();
+        initAudio();
+        resumeAudio();
+        
+        const touch = e.touches[0];
+        const rect = canvas.getBoundingClientRect();
+        const x = touch.clientX - rect.left;
+        const y = touch.clientY - rect.top;
+        const halfWidth = canvas.width / (2 * dpr);
+        
+        // Left half: joystick
+        if (x < halfWidth) {
+            touchJoystick.active = true;
+            touchJoystick.centerX = x;
+            touchJoystick.centerY = y;
+            touchJoystick.x = 0;
+            touchJoystick.y = 0;
+            
+            const baseRect = joystickBase.getBoundingClientRect();
+            joystickBase.style.left = (x - 60) + 'px';
+            joystickBase.style.bottom = (canvas.height / dpr - y - 60) + 'px';
+            joystickKnob.style.left = (x - 30) + 'px';
+            joystickKnob.style.bottom = (canvas.height / dpr - y - 30) + 'px';
+        } else {
+            // Right half: aim + shoot
+            touchAim.active = true;
+            touchAim.x = x;
+            touchAim.y = y;
+            mouse.worldX = x;
+            mouse.worldY = y;
+            mouse.down = true;
+        }
+    }
+    
+    function handleTouchMove(e) {
+        e.preventDefault();
+        const touch = e.touches[0];
+        const rect = canvas.getBoundingClientRect();
+        const x = touch.clientX - rect.left;
+        const y = touch.clientY - rect.top;
+        
+        if (touchJoystick.active) {
+            const dx = x - touchJoystick.centerX;
+            const dy = y - touchJoystick.centerY;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const maxDist = touchJoystick.radius;
+            
+            if (dist > maxDist) {
+                touchJoystick.x = (dx / dist) * maxDist / maxDist;
+                touchJoystick.y = (dy / dist) * maxDist / maxDist;
+            } else {
+                touchJoystick.x = dx / maxDist;
+                touchJoystick.y = dy / maxDist;
+            }
+            
+            joystickKnob.style.left = (touchJoystick.centerX + touchJoystick.x * maxDist - 30) + 'px';
+            joystickKnob.style.bottom = (canvas.height / dpr - (touchJoystick.centerY + touchJoystick.y * maxDist) - 30) + 'px';
+            
+            mobileMoveInput.x = touchJoystick.x;
+            mobileMoveInput.y = touchJoystick.y;
+        }
+        
+        if (touchAim.active) {
+            touchAim.x = x;
+            touchAim.y = y;
+            mouse.worldX = x;
+            mouse.worldY = y;
+        }
+    }
+    
+    function handleTouchEnd(e) {
+        e.preventDefault();
+        const touch = e.changedTouches[0];
+        const rect = canvas.getBoundingClientRect();
+        const x = touch.clientX - rect.left;
+        const y = touch.clientY - rect.top;
+        const halfWidth = canvas.width / (2 * dpr);
+        
+        if (x < halfWidth && touchJoystick.active) {
+            touchJoystick.active = false;
+            touchJoystick.x = 0;
+            touchJoystick.y = 0;
+            mobileMoveInput.x = 0;
+            mobileMoveInput.y = 0;
+            joystickKnob.style.left = joystickBase.style.left;
+            joystickKnob.style.bottom = joystickBase.style.bottom;
+        }
+        
+        if (x >= halfWidth && touchAim.active) {
+            touchAim.active = false;
+            mouse.down = false;
+        }
+    }
+    
+    canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+    canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
+    canvas.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+    
+    // Button handlers
+    dashButton.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        initAudio();
+        resumeAudio();
+        keys['shift'] = true;
+    });
+    dashButton.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        keys['shift'] = false;
+    });
+    
+    pauseButton.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        initAudio();
+        resumeAudio();
+        paused = !paused;
+        gameState = paused ? 'paused' : 'playing';
+    });
+    
+    muteButton.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        initAudio();
+        resumeAudio();
+        muted = !muted;
+        muteButton.textContent = muted ? '🔇' : '🔊';
+    });
+    
+    // Click handlers for desktop compatibility
+    dashButton.addEventListener('click', (e) => {
+        e.preventDefault();
+        initAudio();
+        resumeAudio();
+        keys['shift'] = true;
+        setTimeout(() => { keys['shift'] = false; }, 100);
+    });
+    
+    pauseButton.addEventListener('click', (e) => {
+        e.preventDefault();
+        initAudio();
+        resumeAudio();
+        paused = !paused;
+        gameState = paused ? 'paused' : 'playing';
+    });
+    
+    muteButton.addEventListener('click', (e) => {
+        e.preventDefault();
+        initAudio();
+        resumeAudio();
+        muted = !muted;
+        muteButton.textContent = muted ? '🔇' : '🔊';
+    });
+    
+    // Prevent default touch behaviors
+    document.addEventListener('touchstart', (e) => {
+        if (e.target === canvas || e.target.closest('.mobile-controls')) {
+            e.preventDefault();
+        }
+    }, { passive: false });
+    
+    document.addEventListener('touchmove', (e) => {
+        if (e.target === canvas || e.target.closest('.mobile-controls')) {
+            e.preventDefault();
+        }
+    }, { passive: false });
+    
+    // Initialize audio on first user interaction
+    document.addEventListener('pointerdown', initAudio, { once: true });
+    document.addEventListener('touchstart', initAudio, { once: true });
+    document.addEventListener('click', initAudio, { once: true });
 
+    // Audio context and sounds (mobile-friendly lazy init)
+    let audioContext = null;
+    let audioInitialized = false;
+    
+    function initAudio() {
+        if (audioInitialized || muted) return;
+        try {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            audioInitialized = true;
+            const hint = document.getElementById('audioHint');
+            if (hint) hint.classList.remove('show');
+        } catch (e) {
+            console.warn('WebAudio not supported');
+        }
+    }
+    
+    function resumeAudio() {
+        if (audioContext && audioContext.state === 'suspended') {
+            audioContext.resume();
+        }
+    }
+    
     function playSound(frequency, duration, type = 'sine', volume = 0.3, pitchVariation = 0) {
         if (muted || !audioContext) return;
+        
+        // Sound spam limiter
+        const now = Date.now();
+        soundTimestamps = soundTimestamps.filter(t => now - t < 1000);
+        if (soundTimestamps.length >= maxSoundsPerSecond) return;
+        soundTimestamps.push(now);
+        
         try {
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-            oscillator.connect(gainNode);
-            gainNode.connect(audioContext.destination);
-            const pitch = pitchVariation > 0 ? frequency + (Math.random() - 0.5) * pitchVariation : frequency;
-            oscillator.frequency.value = pitch;
-            oscillator.type = type;
-            gainNode.gain.setValueAtTime(volume, audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
-            oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + duration);
+            resumeAudio();
+            
+            // Improved sound design
+            if (type === 'shoot') {
+                // Shoot: square + noise click
+                const osc1 = audioContext.createOscillator();
+                const osc2 = audioContext.createOscillator();
+                const gain1 = audioContext.createGain();
+                const gain2 = audioContext.createGain();
+                
+                osc1.type = 'square';
+                osc1.frequency.value = frequency + (Math.random() - 0.5) * pitchVariation;
+                gain1.gain.setValueAtTime(volume * 0.7, audioContext.currentTime);
+                gain1.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+                
+                osc2.type = 'square';
+                osc2.frequency.value = frequency * 2 + (Math.random() - 0.5) * pitchVariation;
+                gain2.gain.setValueAtTime(volume * 0.3, audioContext.currentTime);
+                gain2.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration * 0.5);
+                
+                osc1.connect(gain1);
+                osc2.connect(gain2);
+                gain1.connect(audioContext.destination);
+                gain2.connect(audioContext.destination);
+                osc1.start();
+                osc2.start();
+                osc1.stop(audioContext.currentTime + duration);
+                osc2.stop(audioContext.currentTime + duration * 0.5);
+            } else if (type === 'kill') {
+                // Kill: low pop + pitch drop
+                const osc1 = audioContext.createOscillator();
+                const osc2 = audioContext.createOscillator();
+                const gain1 = audioContext.createGain();
+                const gain2 = audioContext.createGain();
+                
+                osc1.type = 'sawtooth';
+                osc1.frequency.setValueAtTime(frequency, audioContext.currentTime);
+                osc1.frequency.exponentialRampToValueAtTime(frequency * 0.5, audioContext.currentTime + duration);
+                gain1.gain.setValueAtTime(volume, audioContext.currentTime);
+                gain1.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+                
+                osc2.type = 'sawtooth';
+                osc2.frequency.value = frequency * 0.7;
+                gain2.gain.setValueAtTime(volume * 0.5, audioContext.currentTime);
+                gain2.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration * 0.6);
+                
+                osc1.connect(gain1);
+                osc2.connect(gain2);
+                gain1.connect(audioContext.destination);
+                gain2.connect(audioContext.destination);
+                osc1.start();
+                osc2.start();
+                osc1.stop(audioContext.currentTime + duration);
+                osc2.stop(audioContext.currentTime + duration * 0.6);
+            } else if (type === 'dash') {
+                // Dash: whoosh (sawtooth ramp)
+                const osc = audioContext.createOscillator();
+                const gain = audioContext.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(frequency * 0.5, audioContext.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(frequency * 1.5, audioContext.currentTime + duration);
+                gain.gain.setValueAtTime(volume, audioContext.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioContext.destination);
+                osc.start();
+                osc.stop(audioContext.currentTime + duration);
+            } else if (type === 'wave') {
+                // Wave: chord (two sines)
+                const osc1 = audioContext.createOscillator();
+                const osc2 = audioContext.createOscillator();
+                const gain1 = audioContext.createGain();
+                const gain2 = audioContext.createGain();
+                osc1.type = 'sine';
+                osc1.frequency.value = frequency;
+                osc2.type = 'sine';
+                osc2.frequency.value = frequency * 1.5;
+                gain1.gain.setValueAtTime(volume, audioContext.currentTime);
+                gain1.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+                gain2.gain.setValueAtTime(volume * 0.7, audioContext.currentTime);
+                gain2.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+                osc1.connect(gain1);
+                osc2.connect(gain2);
+                gain1.connect(audioContext.destination);
+                gain2.connect(audioContext.destination);
+                osc1.start();
+                osc2.start();
+                osc1.stop(audioContext.currentTime + duration);
+                osc2.stop(audioContext.currentTime + duration);
+            } else {
+                // Default sound
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                const pitch = pitchVariation > 0 ? frequency + (Math.random() - 0.5) * pitchVariation : frequency;
+                oscillator.frequency.value = pitch;
+                oscillator.type = type;
+                gainNode.gain.setValueAtTime(volume, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + duration);
+            }
         } catch (e) {
             // Ignore audio errors
         }
@@ -164,9 +480,10 @@
                 this.dashTimer = this.dashDuration;
                 this.dashCooldown = this.dashCooldownTime;
                 this.invulnerable = this.dashDuration;
-                spawnParticles(this.x, this.y, 8);
+                const particleCount = isMobile ? 8 : 12;
+                spawnParticles(this.x, this.y, particleCount);
                 addShake(3);
-                playSound(400, 0.2, 'sawtooth', 0.25, 100);
+                playSound(400, 0.2, 'dash', 0.25);
             }
             
             // Dash movement
@@ -205,17 +522,25 @@
             }
             
             if (!this.dashActive) {
-                // Normal movement
+                // Normal movement - mobile joystick or keyboard
                 let dx = 0, dy = 0;
-                if (keys['w'] || keys['arrowup']) dy -= 1;
-                if (keys['s'] || keys['arrowdown']) dy += 1;
-                if (keys['a'] || keys['arrowleft']) dx -= 1;
-                if (keys['d'] || keys['arrowright']) dx += 1;
+                if (isMobile && touchJoystick.active) {
+                    dx = mobileMoveInput.x;
+                    dy = mobileMoveInput.y;
+                } else {
+                    if (keys['w'] || keys['arrowup']) dy -= 1;
+                    if (keys['s'] || keys['arrowdown']) dy += 1;
+                    if (keys['a'] || keys['arrowleft']) dx -= 1;
+                    if (keys['d'] || keys['arrowright']) dx += 1;
+                    
+                    if (dx !== 0 || dy !== 0) {
+                        const len = Math.sqrt(dx * dx + dy * dy);
+                        dx /= len;
+                        dy /= len;
+                    }
+                }
                 
                 if (dx !== 0 || dy !== 0) {
-                    const len = Math.sqrt(dx * dx + dy * dy);
-                    dx /= len;
-                    dy /= len;
                     this.x += dx * this.speed * dt;
                     this.y += dy * this.speed * dt;
                 }
@@ -226,9 +551,15 @@
             this.x = Math.max(margin, Math.min(canvas.width / dpr - margin, this.x));
             this.y = Math.max(margin, Math.min(canvas.height / dpr - margin, this.y));
             
-            // Aim at mouse
-            const dx2 = mouse.worldX - this.x;
-            const dy2 = mouse.worldY - this.y;
+            // Aim at mouse or touch
+            let aimX = mouse.worldX;
+            let aimY = mouse.worldY;
+            if (isMobile && touchAim.active) {
+                aimX = touchAim.x;
+                aimY = touchAim.y;
+            }
+            const dx2 = aimX - this.x;
+            const dy2 = aimY - this.y;
             this.angle = Math.atan2(dy2, dx2);
             
             // Update invulnerability
@@ -273,6 +604,12 @@
             if (this.dashActive) {
                 ctx.shadowBlur = 20;
                 ctx.shadowColor = '#4a9eff';
+                // Dash invulnerability outline
+                ctx.strokeStyle = '#0ff';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(0, 0, this.radius + 2, 0, Math.PI * 2);
+                ctx.stroke();
             }
             
             if (this.invulnerable > 0 && !this.dashActive) {
@@ -461,11 +798,43 @@
         }
     }
 
+    class Shockwave {
+        constructor(x, y) {
+            this.x = x;
+            this.y = y;
+            this.radius = 0;
+            this.maxRadius = 40;
+            this.lifetime = 0.3;
+            this.age = 0;
+        }
+
+        update(dt) {
+            this.age += dt;
+            this.radius = (this.age / this.lifetime) * this.maxRadius;
+        }
+
+        isDead() {
+            return this.age >= this.lifetime;
+        }
+
+        render(ctx) {
+            const alpha = 1 - (this.age / this.lifetime);
+            ctx.globalAlpha = alpha * 0.6;
+            ctx.strokeStyle = '#ffaa00';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+        }
+    }
+
     // Game entities
     let player = new Player();
     let bullets = [];
     let enemies = [];
     let particles = [];
+    let shockwaves = [];
     let lastShotTime = 0;
     let shootCooldown = 0.15;
     let enemySpawnTimer = 0;
@@ -473,6 +842,10 @@
     let enemiesPerWave = 5;
     let waveBannerTime = 0;
     let waveBannerDuration = 2;
+    
+    function getMaxParticles() {
+        return isMobile ? 150 : 250;
+    }
 
     function addShake(intensity) {
         screenShake.x += (Math.random() - 0.5) * intensity * 2;
@@ -484,9 +857,18 @@
     }
 
     function spawnParticles(x, y, count) {
-        for (let i = 0; i < count; i++) {
+        // Limit particle count for performance
+        const maxP = getMaxParticles();
+        const actualCount = Math.min(count, maxP - particles.length);
+        if (actualCount <= 0) return;
+        
+        for (let i = 0; i < actualCount; i++) {
             particles.push(new Particle(x, y));
         }
+    }
+    
+    function spawnShockwave(x, y) {
+        shockwaves.push(new Shockwave(x, y));
     }
 
     function checkCollisions() {
@@ -498,9 +880,13 @@
                 const dx = bullet.x - enemy.x;
                 const dy = bullet.y - enemy.y;
                 const dist = Math.sqrt(dx * dx + dy * dy);
-                if (dist < bullet.radius + enemy.radius) {
+                // Mobile assist: slightly larger hit radius
+                const hitRadius = isMobile ? bullet.radius + enemy.radius + 2 : bullet.radius + enemy.radius;
+                if (dist < hitRadius) {
                     enemy.hitFlash = 0.1;
-                    spawnParticles(enemy.x, enemy.y, 15);
+                    const particleCount = isMobile ? 12 : 20;
+                    spawnParticles(enemy.x, enemy.y, particleCount);
+                    spawnShockwave(enemy.x, enemy.y);
                     enemies.splice(j, 1);
                     bullets.splice(i, 1);
                     
@@ -511,7 +897,7 @@
                     
                     hitstop = 0.05;
                     addShake(12);
-                    playSound(200, 0.15, 'sawtooth', 0.3, 30);
+                    playSound(200, 0.15, 'kill', 0.3);
                     break;
                 }
             }
@@ -526,10 +912,12 @@
             if (dist < enemy.radius + player.radius) {
                 const died = player.takeDamage(10);
                 if (died) {
-                    spawnParticles(player.x, player.y, 30);
+                    const particleCount = isMobile ? 20 : 30;
+                    spawnParticles(player.x, player.y, particleCount);
                     gameState = 'gameOver';
                 }
-                spawnParticles(enemy.x, enemy.y, 15);
+                const particleCount = isMobile ? 12 : 18;
+                spawnParticles(enemy.x, enemy.y, particleCount);
                 enemies.splice(i, 1);
                 
                 combo = 0;
@@ -548,6 +936,7 @@
         bullets = [];
         enemies = [];
         particles = [];
+        shockwaves = [];
         score = 0;
         wave = 1;
         enemySpawnTimer = 0;
@@ -560,6 +949,10 @@
         combo = 0;
         comboTimer = 0;
         lastShotTime = 0;
+        touchJoystick.active = false;
+        touchAim.active = false;
+        mobileMoveInput.x = 0;
+        mobileMoveInput.y = 0;
     }
 
     // Game loop
@@ -587,7 +980,8 @@
             // Muzzle flash
             if (gameState === 'playing' && !paused) {
                 const now = currentTime / 1000;
-                if ((mouse.down || keys[' ']) && now - lastShotTime < 0.05) {
+                const isShooting = mouse.down || keys[' '] || (isMobile && touchAim.active);
+                if (isShooting && now - lastShotTime < 0.05) {
                     const flashX = player.x + Math.cos(player.angle) * (player.radius + 8);
                     const flashY = player.y + Math.sin(player.angle) * (player.radius + 8);
                     ctx.save();
@@ -611,6 +1005,7 @@
             
             bullets.forEach(bullet => bullet.render(ctx));
             enemies.forEach(enemy => enemy.render(ctx));
+            shockwaves.forEach(sw => sw.render(ctx));
             particles.forEach(p => p.render(ctx));
             player.render(ctx);
 
@@ -641,6 +1036,12 @@
                     return ghost.alpha > 0;
                 });
                 
+                // Update shockwaves during hitstop
+                shockwaves = shockwaves.filter(sw => {
+                    sw.update(dt);
+                    return !sw.isDead();
+                });
+                
                 render();
                 requestAnimationFrame(gameLoop);
                 return;
@@ -661,13 +1062,14 @@
 
             // Shooting
             const now = currentTime / 1000;
-            if ((mouse.down || keys[' ']) && now - lastShotTime >= shootCooldown) {
+            const isShooting = mouse.down || keys[' '] || (isMobile && touchAim.active);
+            if (isShooting && now - lastShotTime >= shootCooldown) {
                 const bulletX = player.x + Math.cos(player.angle) * (player.radius + 5);
                 const bulletY = player.y + Math.sin(player.angle) * (player.radius + 5);
                 bullets.push(new Bullet(bulletX, bulletY, player.angle));
                 lastShotTime = now;
                 player.recoilOffset = 3;
-                playSound(800, 0.05, 'square', 0.2, 50);
+                playSound(800, 0.05, 'shoot', 0.2);
             }
 
             bullets = bullets.filter(bullet => {
@@ -687,6 +1089,12 @@
                 p.update(dt);
                 return !p.isDead();
             });
+            
+            // Update shockwaves
+            shockwaves = shockwaves.filter(sw => {
+                sw.update(dt);
+                return !sw.isDead();
+            });
 
             if (waveBannerTime > 0) {
                 waveBannerTime -= dt;
@@ -695,7 +1103,7 @@
                 enemiesPerWave = 5 + wave * 2;
                 enemySpawnRate = Math.max(0.5, 2 - wave * 0.1);
                 waveBannerTime = waveBannerDuration;
-                playSound(500, 0.3, 'sine', 0.5);
+                playSound(500, 0.3, 'wave', 0.5);
             }
 
             checkCollisions();
