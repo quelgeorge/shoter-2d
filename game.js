@@ -127,6 +127,8 @@
     let enemyBullets = [];
     let pickups = [];
     let floaters = [];
+    let explosionsThisFrame = 0;
+    const MAX_EXPLOSIONS_PER_FRAME = 4;
 
     // Input state
     const keysDown = {};
@@ -1079,6 +1081,7 @@
             this.pierce = pierce;
             this.splash = splash;
             this.isEnemy = isEnemy;
+            this.exploded = false;
             this.active = true;
         }
 
@@ -1455,6 +1458,7 @@
 
     function spawnParticles(x, y, count) {
         // Limit particle count for performance
+        if (particles.length >= getMaxParticles()) return;
         const maxP = getMaxParticles();
         const actualCount = Math.min(count, maxP - particles.length);
         if (actualCount <= 0) return;
@@ -1661,7 +1665,9 @@
                     enemy.hitFlash = 0.1;
                     enemy.hp -= bullet.damage * (buffs.damage > 0 ? 1.3 : 1);
 
-                    if (bullet.splash > 0) {
+                    if (bullet.splash > 0 && !bullet.exploded && explosionsThisFrame < MAX_EXPLOSIONS_PER_FRAME) {
+                        bullet.exploded = true;
+                        explosionsThisFrame++;
                         for (let k = enemies.length - 1; k >= 0; k--) {
                             const other = enemies[k];
                             const sdx = bullet.x - other.x;
@@ -1680,7 +1686,10 @@
                     }
 
                     if (enemy.hp <= 0) {
-                        applyEnemyDeath(enemy, j);
+                        const enemyIndex = enemies.indexOf(enemy);
+                        if (enemyIndex !== -1) {
+                            applyEnemyDeath(enemy, enemyIndex);
+                        }
                     }
 
                     removeAt(bullets, i, bulletPool);
@@ -1799,6 +1808,7 @@
     function gameLoop(currentTime) {
         const dt = Math.min((currentTime - lastTime) / 1000, 0.033);
         lastTime = currentTime;
+        explosionsThisFrame = 0;
 
         fpsTimer += dt;
         if (fpsTimer >= 0.5) {
@@ -2173,9 +2183,11 @@
             ctx.fillText(`Bullets: ${bullets.length}`, canvas.width / dpr - 100, 40);
             ctx.fillText(`Enemies: ${enemies.length}`, canvas.width / dpr - 100, 60);
             ctx.fillText(`Particles: ${particles.length}`, canvas.width / dpr - 100, 80);
+            ctx.fillText(`Shockwaves: ${shockwaves.length}`, canvas.width / dpr - 150, 100);
+            ctx.fillText(`Expl/frame: ${explosionsThisFrame}`, canvas.width / dpr - 150, 120);
 
             const inputX = canvas.width / dpr - 240;
-            let inputY = 110;
+            let inputY = 150;
             ctx.fillText(`Kbd: ${inputDebug.keyboard.x.toFixed(2)}, ${inputDebug.keyboard.y.toFixed(2)}`, inputX, inputY);
             inputY += 18;
             ctx.fillText(`Joy: ${inputDebug.joystick.x.toFixed(2)}, ${inputDebug.joystick.y.toFixed(2)}`, inputX, inputY);
